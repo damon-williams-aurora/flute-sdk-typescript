@@ -1,7 +1,7 @@
 # `@getflute/sdk`
 
 Official **server-side** TypeScript / Node.js SDK for the
-[Flute](https://getflute.com) payment platform.
+[Flute](https://flute.com) payment platform.
 
 > ⚠️ **Server-side only.** The SDK uses an OAuth client secret. Never
 > ship it to a browser, mobile app, or any environment that can be

@@ -5,4 +5,4 @@ This project adopts the
 
 In short: be respectful, assume good intent, escalate to the
 maintainers in private when something feels off. Reports go to
-`conduct@getflute.com`.
+`conduct@flute.com`.

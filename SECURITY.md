@@ -6,7 +6,7 @@ platform. We take security reports seriously.
 ## Reporting a vulnerability
 
 - **Do NOT open a public GitHub issue.**
-- Email `security@getflute.com` with a description of the issue,
+- Email `security@flute.com` with a description of the issue,
   reproduction steps, and (if possible) a proposed fix.
 - We acknowledge reports within 2 business days and aim to ship a
   patch within 10 business days for high-severity findings.
