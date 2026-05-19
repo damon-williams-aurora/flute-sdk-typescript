@@ -32,18 +32,18 @@ jobs:
       - name: Setup Node 22
         uses: actions/setup-node@v6
         with:
-          node-version: '22.13'
+          node-version: '22'
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      # Node 22.13.1 ships with npm 10.9.2. That CLI version can SIGN
-      # provenance attestations and push them to the Sigstore transparency
-      # log, but it does not yet implement the OIDC-token-for-registry-token
-      # exchange that Trusted Publisher publishes require. The attestation
-      # uploads succeed and then the PUT /<scope>/<pkg> request goes out
-      # without an Authorization header, so the registry replies 404 (not
-      # 401, by design — npm hides existence to anonymous callers).
-      # Trusted Publisher publish from CI requires npm >= 11.5.1.
+      # The npm CLI bundled with each Node release lags behind on the
+      # OIDC-token-for-registry-token exchange that Trusted Publisher
+      # publishes require. Older bundled CLIs (npm < 11.5.1) sign the
+      # provenance attestation and upload it to Sigstore correctly, but
+      # then send the PUT /<scope>/<pkg> request without an Authorization
+      # header, so the registry replies 404 (not 401, by design — npm
+      # hides existence to anonymous callers). Force the latest npm to
+      # avoid the issue regardless of which Node minor we land on.
       - name: Upgrade npm CLI (Trusted Publisher requires >= 11.5.1)
         run: |
           npm install --global npm@latest

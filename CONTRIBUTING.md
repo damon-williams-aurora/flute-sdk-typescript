@@ -7,7 +7,7 @@ we hold this repo to a high bar.
 
 ## Prerequisites
 
-- Node.js `>=20.19.0` (the `.nvmrc` pins `22.13`)
+- Node.js `>=20.19.0` (the `.nvmrc` pins to `22` — latest LTS major)
 - `npm` (lockfile is `package-lock.json`)
 
 ```bash

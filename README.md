@@ -232,7 +232,7 @@ verification (including a backend cross-check vector).
 ```bash
 git clone https://github.com/getflute/flute-sdk-typescript.git
 cd flute-sdk-typescript
-nvm use                  # picks up Node 22.13 from .nvmrc (or 20.19+/24.x)
+nvm use                  # picks up Node 22.x from .nvmrc (Node 20.19+ / 24.x also work)
 npm install
 npm run verify           # lint • typecheck • test • build (~5 s)
 # or step-by-step:
@@ -305,7 +305,7 @@ A green run is:
 
 1. `npm run verify` exits 0 (lint + typecheck + tests + build).
 2. Coverage thresholds met — see CI output for `./coverage/index.html`.
-3. CI matrix green on Node 20.19, 22.13, and 24.13.
+3. CI matrix green on Node 20, 22, and 24 (latest of each major).
 4. The 5 example flows run cleanly against the sandbox with real
    credentials.
 
@@ -589,7 +589,7 @@ intentionally re-process old events offline.
 ## Compatibility
 
 - Node `>=20.19.0` (uses native `fetch`, `AbortController`, `crypto.subtle`)
-- CI runs on Node 20.19, 22.13, and 24.13
+- CI runs on Node 20, 22, and 24 (latest of each major)
 - TypeScript `>=5.0` recommended for full type fidelity
 - ESM and CommonJS dual entrypoints
 
