@@ -300,6 +300,251 @@ $10.00 USD). Always pass `currencyCode` explicitly even though the
 OpenAPI spec marks it optional — the live API returns HTTP 500 if it
 is omitted.
 
+## Method-by-method request shapes
+
+The snippets in "Common intents → code" are intentionally minimal.
+Below is the literal request body the SDK forwards to the wire for
+each mutating method, with the field-level rules and prerequisite
+look-ups an agent needs to assemble a correct call.
+
+Read-only methods (`list`, `retrieve`, `getPaymentSettings`) take
+either no body or simple query parameters and are fully covered by
+the snippets earlier in this document.
+
+### `transactions.sale` and `transactions.authorize`
+
+Both submit `POST /v2/transactions`. They share the body shape; the
+SDK injects `captureMethod = 'Auto'` for `sale` and `'Manual'` for
+`authorize` into `transactionDetails.cardData` automatically — never
+set it yourself.
+
+```ts
+await flute.transactions.sale({
+  baseAmount: 1000, // smallest currency unit (USD cents)
+  currencyCode: 'USD', // see § "Things to avoid" — never omit
+  paymentProcessorId: '<uuid>', // see § "UI integration patterns" — fetch from settings
+  pricingType: 'Card', // optional; only meaningful on dual-pricing merchants
+  referenceId: 'order-1234', // optional; participates in duplicate detection
+  customerInitiatedTransaction: true, // true = CIT (default), false = MIT
+  transactionDetails: {
+    // Pick exactly one of `cardData` or `achData`. Card path:
+    cardData: {
+      cardNumber: '4111111111111111',
+      securityCode: '123',
+      expirationMonth: 12,
+      expirationYear: 2030,
+    },
+    // ACH path (mutually exclusive with cardData):
+    // achData: { accountNumber, routingNumber, accountType, accountHolderName }
+  },
+});
+```
+
+Returns `TransactionResult` with `id`, `status`, `processorResponse`,
+`receiptHtml`, etc. Persist `id` if you may need to `capture`,
+`void`, or `refund` later.
+
+### `transactions.capture`
+
+```ts
+await flute.transactions.capture(
+  transactionId, // id from a prior authorize
+  { amount: 750 }, // optional; omit for a full capture
+);
+```
+
+Partial captures must be strictly less than the originally authorized
+amount. The processor decides whether multiple captures against one
+authorization are allowed; treat that as merchant configuration, not
+SDK contract.
+
+### `transactions.void`
+
+```ts
+await flute.transactions.void(transactionId);
+```
+
+No body. The API auto-detects card vs ACH. For ACH the call only
+succeeds before settlement; after settlement use `refund` instead.
+
+### `transactions.refund`
+
+```ts
+await flute.transactions.refund(
+  transactionId,
+  { amount: 500 }, // optional; omit for a full refund
+);
+```
+
+Card refunds may be partial. ACH refunds are full only — passing
+`amount` on an ACH transaction is an error from the gateway. For
+unsettled card transactions, `void` is cheaper and faster.
+
+### `transactions.calculateAmount`
+
+`GET /v2/transactions/calculate-amount`; all fields go on the query
+string. Returns one breakdown row per supported payment method.
+
+```ts
+await flute.transactions.calculateAmount({
+  baseAmount: 1000,
+  currencyCode: 'USD', // never omit — see § "Things to avoid"
+  pricingType: 'Card', // 'Card' = card-side price (with surcharge / dual-pricing card price)
+  // 'Cash' = cash-side price (with cash discount)
+  tipAmount: 200, // optional
+});
+```
+
+`pricingType` only matters for merchants with ZCP / dual-pricing
+configured. On a flat-pricing merchant both values resolve to the
+same row.
+
+### `paymentSessions.create`
+
+```ts
+await flute.paymentSessions.create({
+  amount: 1000, // > 0 for 'Payment' / 'PaymentAndSave', 0 for 'SaveMethod'
+  mode: 'Payment', // 'Payment' | 'SaveMethod' | 'PaymentAndSave'
+  customerId: '<uuid>', // optional; existing customer to attach saved methods to
+  referenceId: 'order-1234', // optional; participates in duplicate detection
+  tipAmount: 200, // optional; requires a prior auth on the session
+  skipAddressVerification: false, // optional; bypass AVS in payment-bearing modes
+});
+```
+
+Returns `{ id }`. Keep `id` to call `retrieve` / `cancel` later. The
+`mode` accepts the string form (preferred) or the numeric form
+(`1` = Payment, `2` = SaveMethod, `3` = PaymentAndSave) for callers
+porting from the lower-level wire shape.
+
+### Per-call options on every mutating method
+
+State-changing methods accept a second arg with per-request
+overrides:
+
+```ts
+await flute.transactions.sale(
+  {
+    /* body */
+  },
+  {
+    idempotencyKey: 'order-1234', // see § "Idempotency"
+    timeoutMs: 10_000, // override the constructor default for this call
+    maxRetries: 0, // disable retries for this call
+    signal: ac.signal, // cooperative cancel
+  },
+);
+```
+
+## Sandbox test cards
+
+These PANs behave deterministically only when the merchant is wired
+to one of the deterministic sandbox processors:
+
+- `SandboxCard` processor — the `4000…` family below covers the
+  `0`-prefix approval rows and the `1xxx`/`2xxx`-prefix decline /
+  error scenarios.
+- `Tsys` (sandbox keys) — the `4012000098765439` row only.
+
+On any other processor the SDK simply forwards the PAN over the
+wire; behaviour is undefined and the response will reflect whatever
+that processor decides. If `getPaymentSettings()` returns
+`paymentProcessors: []`, no card flow will work at all.
+
+| PAN                | CVV | Processor    | Expected outcome                                                                                                      |
+| ------------------ | --- | ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `4111111111111111` | 123 | SandboxCard  | Approval (response code `00`, `Approved`)                                                                             |
+| `4000000030010005` | 123 | SandboxCard  | Approval, `CardType=Visa`, `CommercialCardLevel=Level3`                                                               |
+| `4000000010050005` | 123 | SandboxCard  | Decline · `05` · "Do not honor"                                                                                       |
+| `4000000010510008` | 123 | SandboxCard  | Decline · `51` · "Insufficient funds"                                                                                 |
+| `4000000010140004` | 123 | SandboxCard  | Decline · `14` · "Invalid card number"                                                                                |
+| `4000000010540005` | 123 | SandboxCard  | Decline · `54` · "Expired card"                                                                                       |
+| `4000000010040006` | 123 | SandboxCard  | Decline · `04` · "Pickup card (lost)"                                                                                 |
+| `4000000010430009` | 123 | SandboxCard  | Decline · `43` · "Stolen card"                                                                                        |
+| `4000000010620005` | 123 | SandboxCard  | Decline · `62` · "Card restricted"                                                                                    |
+| `4000000010570002` | 123 | SandboxCard  | Decline · `57` · "Transaction not permitted"                                                                          |
+| `4000000010990008` | 123 | SandboxCard  | Decline · `05` · "CVV mismatch"                                                                                       |
+| `4000000020010007` | 123 | SandboxCard  | Decline · `01` · "Referral required"                                                                                  |
+| `4000000020190007` | 123 | SandboxCard  | Error · `19` · "Re-enter transaction"                                                                                 |
+| `4000000020910008` | 123 | SandboxCard  | Error · `91` · "Timeout / no response"                                                                                |
+| `4000000020960003` | 123 | SandboxCard  | Error · `96` · "System error"                                                                                         |
+| `4012000098765439` | 999 | TSYS Sandbox | Behaviour depends on the merchant TSYS sandbox config; AVS often "No Match" — disable AVS or use an AVS-pass scenario |
+
+Use `expirationMonth = 12` and `expirationYear = currentYear + 4`
+(or any future YYYY) for all rows above. Never substitute these
+PANs for real card data — the SDK does not check.
+
+## UI integration patterns
+
+These are patterns to follow when an agent is building a higher-level
+UI on top of the SDK (a test harness, a back-office dashboard, an
+internal CLI). They are not part of the public SDK contract; they
+are accumulated experience from building exactly these things.
+
+### Settings prefetch for `paymentProcessorId`
+
+Card / ACH transactions need a `paymentProcessorId` in the body. The
+right value is merchant-specific and changes between sandbox and
+production. Don't ask the operator to type a UUID — fetch it
+once on startup and autocomplete the field:
+
+```ts
+const settings = await flute.settings.getPaymentSettings();
+const defaultProcessorId =
+  settings.paymentProcessors?.find((p) => p.isDefault)?.id ?? settings.paymentProcessors?.[0]?.id;
+```
+
+Surface the merchant's `availableCurrencies`, `maxTransactionAmount`,
+ZCP / surcharge config, and the full processor list at the same
+time — these are the inputs every legitimate transaction call
+depends on.
+
+### Persist the last id returned by mutating calls
+
+The natural QA flow is _sale → retrieve → refund_, _authorize →
+capture → refund_, _paymentSessions.create → retrieve → cancel_.
+After every successful mutating call, store the returned `id`
+keyed by namespace and pre-fill the `transactionId` /
+`paymentSessionId` field on the next form. This eliminates the
+copy-paste step and is the difference between a usable harness and
+a frustrating one.
+
+### Two-stage confirm for production-environment mutating calls
+
+When `environment === 'production'`, render mutating endpoints
+behind a confirm step ("This will charge a real card. Continue?").
+Detect mutating methods from this canonical list (it matches the
+"Idempotency" table earlier in this document):
+
+| Mutating                 | Read-only                            |
+| ------------------------ | ------------------------------------ |
+| `transactions.sale`      | `transactions.list`                  |
+| `transactions.authorize` | `transactions.retrieve`              |
+| `transactions.capture`   | `transactions.calculateAmount`       |
+| `transactions.void`      | `settings.getPaymentSettings`        |
+| `transactions.refund`    | `paymentSessions.retrieve`           |
+| `paymentSessions.create` | `sessions.authenticate`              |
+| `paymentSessions.cancel` | `webhooks.verifySignature` (offline) |
+
+`webhooks.verifySignature` is purely local and never hits the
+network; treat it as read-only for confirmation prompts.
+
+### Surface the test-card preset selector
+
+For any form that accepts card data, expose the presets from
+"Sandbox test cards" above as a dropdown that fills `cardNumber`,
+`securityCode`, `expirationMonth`, and `expirationYear` in one
+click. Without this, operators end up retyping `4111…1111` from
+memory and miss the deterministic decline scenarios entirely.
+
+### Mask sensitive fields in copy / logs
+
+`cardNumber`, `securityCode`, the OAuth `clientSecret`, the
+`signatureSecret` for webhooks, and any access token are sensitive.
+Render them in `<input type="password">`, redact them when copying
+the request to clipboard or to a log line, and never serialise them
+into a screenshot a developer might paste into a ticket.
+
 ## Things to avoid
 
 - **Don't omit `currencyCode` in `calculateAmount`.** Despite the
