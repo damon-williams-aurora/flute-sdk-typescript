@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Build outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+.tsup/
+
+# Test outputs
+coverage/
+*.lcov
+.nyc_output/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# IDE / editors
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+
+# Misc
+.cache/
+.turbo/
+.parcel-cache/
+.next/
+.nuxt/
+.vercel/
+.netlify/
+
+# Generated artifacts (committed where they are first-class source)
+# Note: src/types/generated/ IS committed — it's the SDK's typed source surface
+# generated from openapi/*.json. CI verifies it stays in sync with the spec.
+docs-site/
+typedoc/
+
+# Lockfiles policy: keep package-lock.json
+yarn.lock
+pnpm-lock.yaml

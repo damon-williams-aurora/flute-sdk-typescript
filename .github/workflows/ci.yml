@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# CI never makes commits, but `npm install` triggers the `prepare` script
+# which installs husky hooks; HUSKY=0 keeps the hook scripts inert if any
+# transient git operation runs (e.g. lint-staged backups).
+env:
+  HUSKY: 0
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: lint • typecheck • test • build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['20.19', '22.13', '24.13']
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify generated types are in sync with the OpenAPI spec
+        run: |
+          npm run openapi:types
+          git diff --exit-code -- src/types/generated/ \
+            || (echo "::error::Committed generated types differ from openapi/*.json. Run 'npm run openapi:types' and commit the result." && exit 1)
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (with coverage)
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload coverage
+        if: matrix.node-version == '22.13'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14

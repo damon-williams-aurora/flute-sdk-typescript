@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Disable husky in CI: hooks (lint-staged + commitlint) run locally on
+# pre-commit / commit-msg, and at PR time via the CI workflow. They must
+# stay out of the way of changesets/action, which crafts a non-Conventional
+# "Version Packages" commit that would otherwise fail commitlint.
+env:
+  HUSKY: 0
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write # required for npm provenance + Trusted Publisher OIDC
+
+jobs:
+  release:
+    name: Version & publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.13'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Node 22.13.1 ships with npm 10.9.2. That CLI version can SIGN
+      # provenance attestations and push them to the Sigstore transparency
+      # log, but it does not yet implement the OIDC-token-for-registry-token
+      # exchange that Trusted Publisher publishes require. The attestation
+      # uploads succeed and then the PUT /<scope>/<pkg> request goes out
+      # without an Authorization header, so the registry replies 404 (not
+      # 401, by design — npm hides existence to anonymous callers).
+      # Trusted Publisher publish from CI requires npm >= 11.5.1.
+      - name: Upgrade npm CLI (Trusted Publisher requires >= 11.5.1)
+        run: |
+          npm install --global npm@latest
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify (lint • typecheck • test • build)
+        run: npm run verify
+
+      # Authenticates to npm via OIDC (Trusted Publisher), not a long-lived
+      # token. The publisher is registered at the package level on npm:
+      # https://www.npmjs.com/package/@getflute/sdk/access
+      # Org: getflute · Repo: flute-sdk-typescript · Workflow: release.yml
+      # As long as those three match, npm accepts the publish + provenance
+      # attestation produced by `id-token: write` above.
+      - name: Create release PR or publish
+        uses: changesets/action@v1
+        with:
+          version: npm run version-packages
+          publish: npm run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
