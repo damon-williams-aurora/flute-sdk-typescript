@@ -29,20 +29,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node 22
+      # Use Node 24 here (not the Node 22 the rest of CI uses). The npm CLI
+      # bundled with Node 22 (currently 11.6.0) hits npm/cli#9088 — Trusted
+      # Publisher OIDC publishes fail with a misleading
+      #   E404 PUT https://registry.npmjs.org/@scope%2Fpkg
+      # even though the trusted-publisher config is correct, the package
+      # exists, and `id-token: write` is granted. The fix confirmed by the
+      # upstream issue is to run on a CLI >= 11.6.2, which Node 24 ships.
+      # We pin only the release runner; CI matrix stays on 20/22/24 to keep
+      # broad version coverage for tests.
+      - name: Setup Node 24
         uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      # Trusted Publisher requires npm >= 11.5.1 (for the OIDC-token-for-
-      # registry-token exchange that publishes use under the hood). Node 22
-      # latest already bundles npm 11.6+, so we don't self-upgrade — that
-      # corrupts the running npm's own module resolution on recent Nodes
-      # (cf. MODULE_NOT_FOUND: 'promise-retry' from `npm install -g npm@latest`).
-      # We only print the version for diagnosability.
-      - name: Print npm version (Trusted Publisher requires >= 11.5.1)
+      - name: Print npm version (Trusted Publisher requires >= 11.6.2 — see npm/cli#9088)
         run: npm --version
 
       - name: Install dependencies
